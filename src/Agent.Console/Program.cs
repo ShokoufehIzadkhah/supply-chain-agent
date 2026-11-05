@@ -1,5 +1,6 @@
 using Agent.Console;
 using Agent.Tools;
+using Agent.Tools.Rag;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
@@ -19,10 +20,18 @@ using var provider = new ServiceCollection()
     .AddLogging(logging => logging
         .AddConfiguration(configuration.GetSection("Logging"))
         .AddSimpleConsole(options => options.SingleLine = true))
+    .AddSingleton(ChatClientFactory.CreateEmbeddingGenerator(configuration))
     .AddAgentTools(configuration)
+    .AddPolicyRag(configuration)
     .BuildServiceProvider();
 
+// Build the policy index before the first question. Only documents whose content hash changed are
+// chunked and embedded again, so a restart with unchanged policies costs nothing.
+var policyOptions = provider.GetRequiredService<PolicyRagOptions>();
+await provider.GetRequiredService<PolicyIndexer>().RebuildAsync(policyOptions.PolicyDirectory);
+
 var orderTools = provider.GetRequiredService<OrderTools>();
+var policyTools = provider.GetRequiredService<PolicyTools>();
 
 // Expose the OrderTools methods as function tools the model can call. Each one is wrapped so the
 // console can report the tool name, its arguments and the duration in grey as the call happens.
@@ -34,6 +43,7 @@ var tools = new List<AITool>
     new ToolCallWriter(AIFunctionFactory.Create((Func<int, Task<string>>)orderTools.GetShipmentInfo)),
     new ToolCallWriter(AIFunctionFactory.Create(
         (Func<int, DateOnly, string, Task<string>>)orderTools.ProposeDeliveryDateChange)),
+    new ToolCallWriter(AIFunctionFactory.Create((Func<string, Task<string>>)policyTools.SearchPolicies)),
 };
 
 var systemPrompt = await File.ReadAllTextAsync(

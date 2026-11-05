@@ -65,6 +65,49 @@ internal static class ChatClientFactory
         };
     }
 
+    /// <summary>Creates the embedding generator described by <paramref name="configuration"/>.</summary>
+    /// <param name="configuration">Configuration containing the <c>AI</c> section.</param>
+    /// <returns>An embedding generator for the configured provider and <c>AI:EmbeddingModel</c>.</returns>
+    /// <exception cref="InvalidOperationException">A required setting is missing, or the provider is unknown.</exception>
+    public static IEmbeddingGenerator<string, Embedding<float>> CreateEmbeddingGenerator(
+        IConfiguration configuration)
+    {
+        var provider = Required(configuration, "AI:Provider");
+        var embeddingModel = Required(configuration, "AI:EmbeddingModel");
+        var apiKey = Required(configuration, "AI:ApiKey");
+
+        return provider.ToLowerInvariant() switch
+        {
+            "azureopenai" => new AzureOpenAIClient(
+                    new Uri(Required(configuration, "AI:Endpoint")),
+                    new ApiKeyCredential(apiKey))
+                .GetEmbeddingClient(embeddingModel)
+                .AsIEmbeddingGenerator(),
+
+            "githubmodels" => new OpenAIClient(
+                    new ApiKeyCredential(apiKey),
+                    new OpenAIClientOptions
+                    {
+                        Endpoint = new Uri(configuration["AI:Endpoint"] ?? DefaultGitHubModelsEndpoint),
+                    })
+                .GetEmbeddingClient(embeddingModel)
+                .AsIEmbeddingGenerator(),
+
+            "openai" => new OpenAIClient(
+                    new ApiKeyCredential(apiKey),
+                    new OpenAIClientOptions
+                    {
+                        Endpoint = new Uri(configuration["AI:Endpoint"] ?? DefaultOpenAiEndpoint),
+                    })
+                .GetEmbeddingClient(embeddingModel)
+                .AsIEmbeddingGenerator(),
+
+            _ => throw new InvalidOperationException(
+                $"Configuration value 'AI:Provider' ('{provider}') is not supported. "
+                + "Use 'AzureOpenAI', 'GitHubModels' or 'OpenAI'."),
+        };
+    }
+
     private static string Required(IConfiguration configuration, string key)
         => configuration[key] is { Length: > 0 } value
             ? value

@@ -1,3 +1,4 @@
+using Agent.Tools.Rag;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -63,4 +64,44 @@ public static class ServiceCollectionExtensions
 
         return services;
     }
+
+    /// <summary>
+    /// Registers the policy retrieval-augmented generation services: the SQLite vector store, the
+    /// indexer that keeps it in step with the policy documents, and the <see cref="PolicyTools"/>
+    /// search tool. The embedding generator must already be registered, because the provider-specific
+    /// implementation lives with the host application.
+    /// </summary>
+    /// <param name="services">Service collection to register into.</param>
+    /// <param name="configuration">
+    /// Configuration that may provide <c>Rag:PolicyDirectory</c> and <c>Rag:DatabasePath</c>.
+    /// </param>
+    /// <returns>The same service collection, so calls can be chained.</returns>
+    public static IServiceCollection AddPolicyRag(this IServiceCollection services, IConfiguration configuration)
+    {
+        var options = new PolicyRagOptions();
+
+        if (configuration["Rag:PolicyDirectory"] is { Length: > 0 } policyDirectory)
+        {
+            options.PolicyDirectory = policyDirectory;
+        }
+
+        if (configuration["Rag:DatabasePath"] is { Length: > 0 } databasePath)
+        {
+            options.DatabasePath = databasePath;
+        }
+
+        // Relative paths in configuration are relative to the application, not the working directory.
+        options.PolicyDirectory = ResolvePath(options.PolicyDirectory);
+        options.DatabasePath = ResolvePath(options.DatabasePath);
+
+        services.AddSingleton(options);
+        services.AddSingleton<IVectorStore>(_ => new SqliteVectorStore(options.DatabasePath));
+        services.AddSingleton<PolicyIndexer>();
+        services.AddSingleton<PolicyTools>();
+
+        return services;
+    }
+
+    private static string ResolvePath(string path)
+        => Path.IsPathRooted(path) ? path : Path.Combine(AppContext.BaseDirectory, path);
 }
