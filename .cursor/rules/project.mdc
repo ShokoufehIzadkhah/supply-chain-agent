@@ -1,0 +1,43 @@
+---
+description: Project context and coding rules for the Supply Chain Order Assistant
+alwaysApply: true
+---
+
+# Project: Supply Chain Order Assistant
+
+A portfolio project: an AI agent that helps a manufacturing company's Customer Service team
+answer questions about orders, inventory and shipments, and propose (never apply) order changes
+that a human must approve. It must look like real, production-minded .NET work.
+
+## Architecture (do not deviate without asking me)
+- `src/Erp.Api` — mock ERP: ASP.NET Core Web API, EF Core + SQLite, Swagger.
+- `src/Agent.Tools` — class library: agent tools (C# methods) that call Erp.Api ONLY via HttpClient,
+  never the database directly. Shared by the console app, Chat.Api and Mcp.Server.
+- `src/Agent.Console` — console app to chat with the agent (week 1).
+- `src/Chat.Api` — ASP.NET Core API exposing POST /chat (week 3).
+- `src/Mcp.Server` — MCP server exposing the same tools (week 2).
+- `web/` — Next.js + TypeScript chat UI and approvals page (week 3).
+- `tests/` — xUnit unit and integration tests; `evals/` — eval set and runner.
+- `docs/policies/` — Markdown policy documents used for RAG.
+
+## Tech rules
+- Latest stable .NET and C#. Nullable enabled. Async all the way. Use records for DTOs.
+- Talk to the LLM through `Microsoft.Extensions.AI` (`IChatClient`, `IEmbeddingGenerator`) so the
+  provider (Azure AI Foundry / Azure OpenAI, GitHub Models, OpenAI) is a config change only.
+- Agent: Microsoft Agent Framework (`Microsoft.Agents.AI`). If an API is unclear, check the
+  official docs (Microsoft Learn / github.com/microsoft/agent-framework) instead of guessing.
+  If the package is unusable, tell me and propose Semantic Kernel as fallback.
+- Secrets: never in code or appsettings.json. Use `dotnet user-secrets` locally and environment
+  variables otherwise. Config keys: `AI:Provider`, `AI:Endpoint`, `AI:ApiKey`, `AI:ChatModel`,
+  `AI:EmbeddingModel`, `ErpApi:BaseUrl`.
+- The agent has NO ability to approve or reject change requests. Only humans (Supervisor role) can.
+- Every tool call is logged with structured logging (ILogger): tool name, arguments, duration ms,
+  success/failure.
+- Tool descriptions (`[Description]`) must be precise: what it does, when to use it, what it returns.
+
+## How to work with me
+- Before a large change, give a short plan (files to create/modify) and wait for my OK.
+- Keep changes small and focused on the current step. Don't build future steps early.
+- After code changes: run `dotnet build` and `dotnet test` and fix errors before saying "done".
+- Explain non-obvious decisions in 1–3 sentences; I want to be able to explain them in an interview.
+- Suggest a concise conventional commit message at the end of each step.
