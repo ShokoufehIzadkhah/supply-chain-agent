@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -8,6 +8,7 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <!-- Do not warn about undocumented members; only the API surface is documented on purpose. -->
     <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <UserSecretsId>2c85a6f4-ce31-4162-82c8-e7d51624caae</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>

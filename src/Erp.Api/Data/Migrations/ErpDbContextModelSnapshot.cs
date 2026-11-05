@@ -18,6 +18,68 @@ namespace Erp.Api.Data.Migrations
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.14");
 
+            modelBuilder.Entity("Erp.Api.Domain.ChangeRequest", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CurrentValue")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset?>("DecidedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DecidedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DecisionComment")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("OrderId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RequestedValue")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrderId");
+
+                    b.HasIndex("Status");
+
+                    b.ToTable("ChangeRequests");
+                });
+
             modelBuilder.Entity("Erp.Api.Domain.Customer", b =>
                 {
                     b.Property<int>("Id")
@@ -219,6 +281,17 @@ namespace Erp.Api.Data.Migrations
                     b.ToTable("Warehouses");
                 });
 
+            modelBuilder.Entity("Erp.Api.Domain.ChangeRequest", b =>
+                {
+                    b.HasOne("Erp.Api.Domain.Order", "Order")
+                        .WithMany("ChangeRequests")
+                        .HasForeignKey("OrderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Order");
+                });
+
             modelBuilder.Entity("Erp.Api.Domain.Inventory", b =>
                 {
                     b.HasOne("Erp.Api.Domain.Product", "Product")
@@ -286,6 +359,8 @@ namespace Erp.Api.Data.Migrations
 
             modelBuilder.Entity("Erp.Api.Domain.Order", b =>
                 {
+                    b.Navigation("ChangeRequests");
+
                     b.Navigation("Lines");
 
                     b.Navigation("Shipments");

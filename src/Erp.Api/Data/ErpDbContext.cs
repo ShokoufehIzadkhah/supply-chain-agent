@@ -19,6 +19,8 @@ public class ErpDbContext(DbContextOptions<ErpDbContext> options) : DbContext(op
 
     public DbSet<Shipment> Shipments => Set<Shipment>();
 
+    public DbSet<ChangeRequest> ChangeRequests => Set<ChangeRequest>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<Customer>(builder =>
@@ -105,6 +107,27 @@ public class ErpDbContext(DbContextOptions<ErpDbContext> options) : DbContext(op
             builder.HasOne(s => s.Order)
                 .WithMany(o => o.Shipments)
                 .HasForeignKey(s => s.OrderId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ChangeRequest>(builder =>
+        {
+            builder.Property(c => c.Type).HasConversion<string>().HasMaxLength(30).IsRequired();
+            builder.Property(c => c.Status).HasConversion<string>().HasMaxLength(20).IsRequired();
+            builder.Property(c => c.CurrentValue).HasMaxLength(100).IsRequired();
+            builder.Property(c => c.RequestedValue).HasMaxLength(100).IsRequired();
+            builder.Property(c => c.Reason).HasMaxLength(500).IsRequired();
+            builder.Property(c => c.CreatedBy).HasMaxLength(100).IsRequired();
+            builder.Property(c => c.DecidedBy).HasMaxLength(100);
+            builder.Property(c => c.DecisionComment).HasMaxLength(500);
+
+            builder.HasIndex(c => c.OrderId);
+            builder.HasIndex(c => c.Status);
+
+            // A change request belongs to its order, so removing the order removes its requests.
+            builder.HasOne(c => c.Order)
+                .WithMany(o => o.ChangeRequests)
+                .HasForeignKey(c => c.OrderId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
     }

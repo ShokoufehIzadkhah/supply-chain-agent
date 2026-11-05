@@ -22,4 +22,6 @@ public class Order
     public ICollection<OrderLine> Lines { get; set; } = [];
 
     public ICollection<Shipment> Shipments { get; set; } = [];
+
+    public ICollection<ChangeRequest> ChangeRequests { get; set; } = [];
 }

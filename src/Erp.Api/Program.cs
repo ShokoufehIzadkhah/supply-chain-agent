@@ -1,7 +1,9 @@
 using System.Reflection;
 using System.Text.Json.Serialization;
+using Erp.Api.Authentication;
 using Erp.Api.Data;
 using Erp.Api.Data.Seed;
+using Erp.Api.Features.ChangeRequests;
 using Erp.Api.Features.Inventory;
 using Erp.Api.Features.Orders;
 using Erp.Api.Features.Shipments;
@@ -28,6 +30,10 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 builder.Services.AddDbContext<ErpDbContext>(options =>
     options.UseSqlite(builder.Configuration.GetConnectionString("ErpDb")));
 
+// API-key authentication: the agent key can propose and read change requests, the supervisor key
+// can read and decide. The keys are supplied through user-secrets or environment variables.
+builder.Services.AddApiKeyAuthentication();
+
 var app = builder.Build();
 
 // In development the local SQLite database is created/upgraded and filled with the
@@ -49,9 +55,13 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
+app.UseAuthentication();
+app.UseAuthorization();
+
 app.MapOrderEndpoints();
 app.MapInventoryEndpoints();
 app.MapShipmentEndpoints();
+app.MapChangeRequestEndpoints();
 
 var summaries = new[]
 {

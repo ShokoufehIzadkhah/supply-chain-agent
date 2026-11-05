@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -16,6 +17,11 @@ namespace Erp.Api.Tests;
 /// </summary>
 public sealed class ErpApiFactory : WebApplicationFactory<Program>
 {
+    // Keys the tests authenticate with. They are injected through configuration so no developer
+    // secret is needed to run the suite.
+    public const string AgentApiKey = "test-agent-key";
+    public const string SupervisorApiKey = "test-supervisor-key";
+
     // A SQLite in-memory database only lives as long as at least one connection to it is open,
     // so this connection is held for the lifetime of the factory (i.e. the whole test class).
     private readonly SqliteConnection _connection = new("Data Source=:memory:");
@@ -26,6 +32,13 @@ public sealed class ErpApiFactory : WebApplicationFactory<Program>
         builder.UseEnvironment("Development");
 
         _connection.Open();
+
+        builder.ConfigureAppConfiguration((_, configuration) =>
+            configuration.AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["ApiKeys:Agent"] = AgentApiKey,
+                ["ApiKeys:Supervisor"] = SupervisorApiKey
+            }));
 
         builder.ConfigureServices(services =>
         {
