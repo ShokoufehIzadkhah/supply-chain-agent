@@ -32,6 +32,8 @@ var tools = new List<AITool>
     new ToolCallWriter(AIFunctionFactory.Create((Func<string, string?, Task<string>>)orderTools.FindOrdersByCustomer)),
     new ToolCallWriter(AIFunctionFactory.Create((Func<string, Task<string>>)orderTools.CheckInventory)),
     new ToolCallWriter(AIFunctionFactory.Create((Func<int, Task<string>>)orderTools.GetShipmentInfo)),
+    new ToolCallWriter(AIFunctionFactory.Create(
+        (Func<int, DateOnly, string, Task<string>>)orderTools.ProposeDeliveryDateChange)),
 };
 
 var systemPrompt = await File.ReadAllTextAsync(

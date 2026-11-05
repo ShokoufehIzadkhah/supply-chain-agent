@@ -102,10 +102,16 @@ public static class ChangeRequestEndpoints
         }
 
         // Each change type decides what a valid requested value looks like.
-        if (request.Type == ChangeRequestType.DeliveryDateChange &&
-            !DateOnly.TryParseExact(requestedValue, DateFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out _))
+        DateOnly? requestedDate = null;
+
+        if (request.Type == ChangeRequestType.DeliveryDateChange)
         {
-            return Invalid("requestedValue", $"A delivery date change needs a date in the format {DateFormat}.");
+            if (!DateOnly.TryParseExact(requestedValue, DateFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed))
+            {
+                return Invalid("requestedValue", $"A delivery date change needs a date in the format {DateFormat}.");
+            }
+
+            requestedDate = parsed;
         }
 
         var order = await db.Orders.FirstOrDefaultAsync(o => o.Id == request.OrderId, ct);
@@ -116,6 +122,23 @@ public static class ChangeRequestEndpoints
                 statusCode: StatusCodes.Status404NotFound,
                 title: "Order not found",
                 detail: $"No order with id {request.OrderId} exists.");
+        }
+
+        // Hard rules the ERP always enforces, independent of any business policy document. Softer
+        // policies are left to the agent and to the human supervisor who decides on the request.
+        if (order.Status is OrderStatus.Delivered or OrderStatus.Cancelled)
+        {
+            return Invalid(
+                "orderId",
+                $"Order {order.Id} is {order.Status} and its delivery date can no longer be changed.");
+        }
+
+        if (requestedDate is not null && requestedDate < order.OrderDate)
+        {
+            return Invalid(
+                "requestedValue",
+                $"The requested delivery date cannot be earlier than the order date " +
+                $"({order.OrderDate.ToString(DateFormat, CultureInfo.InvariantCulture)}).");
         }
 
         var changeRequest = new ChangeRequest

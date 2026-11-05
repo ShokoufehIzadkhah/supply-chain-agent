@@ -1,16 +1,22 @@
+using System.Globalization;
 using System.Net;
+using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace Agent.Tools;
 
 /// <summary>
-/// Typed HTTP client for the read-only mock ERP API. Every method issues a GET and returns
-/// <c>null</c> (or an empty list) when the ERP reports the resource as missing, so callers never
-/// have to treat a 404 as an exception.
+/// Typed HTTP client for the mock ERP API. Read methods issue a GET and return <c>null</c> (or an
+/// empty list) when the ERP reports the resource as missing, so callers never have to treat a 404 as
+/// an exception. The only write method submits a <em>pending</em> change request: deciding one is a
+/// supervisor action that this library deliberately cannot perform.
 /// </summary>
 public sealed class ErpApiClient
 {
+    /// <summary>Wire format for the date carried by a delivery date change.</summary>
+    private const string DateFormat = "yyyy-MM-dd";
+
     private static readonly JsonSerializerOptions JsonOptions = CreateJsonOptions();
 
     private readonly HttpClient _http;
@@ -72,6 +78,58 @@ public sealed class ErpApiClient
         return shipments;
     }
 
+    /// <summary>
+    /// Submits a <em>pending</em> delivery date change for an order. The request is created with the
+    /// agent's credentials and nothing else happens: only a supervisor can approve or reject it, and
+    /// this library exposes no way to do either.
+    /// </summary>
+    /// <param name="orderId">Order the change applies to.</param>
+    /// <param name="requestedDeliveryDate">Delivery date the order should have after approval.</param>
+    /// <param name="reason">Why the change is being requested.</param>
+    /// <param name="createdBy">Who raised the request.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>
+    /// The created request, or the reason the ERP refused to create one. A refusal (an unknown order, or
+    /// a change that breaks an ERP rule such as moving the date of a delivered order) is returned as
+    /// data rather than thrown, because the agent is expected to explain it to the user.
+    /// </returns>
+    public async Task<ChangeRequestSubmission> CreateChangeRequestAsync(
+        int orderId,
+        DateOnly requestedDeliveryDate,
+        string reason,
+        string createdBy,
+        CancellationToken cancellationToken = default)
+    {
+        var body = new
+        {
+            orderId,
+            type = "DeliveryDateChange",
+            requestedValue = requestedDeliveryDate.ToString(DateFormat, CultureInfo.InvariantCulture),
+            reason,
+            createdBy
+        };
+
+        using var response = await _http.PostAsJsonAsync("change-requests", body, JsonOptions, cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            return new ChangeRequestSubmission(ChangeRequestOutcome.OrderNotFound, null, null);
+        }
+
+        if (response.StatusCode == HttpStatusCode.BadRequest)
+        {
+            var problem = await ReadProblemAsync(response, cancellationToken);
+            return new ChangeRequestSubmission(ChangeRequestOutcome.Rejected, null, problem);
+        }
+
+        response.EnsureSuccessStatusCode();
+
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        var created = await JsonSerializer.DeserializeAsync<ChangeRequest>(stream, JsonOptions, cancellationToken);
+
+        return new ChangeRequestSubmission(ChangeRequestOutcome.Created, created, null);
+    }
+
     private async Task<T?> GetAsync<T>(string url, CancellationToken cancellationToken)
     {
         using var response = await _http.GetAsync(url, cancellationToken);
@@ -93,4 +151,33 @@ public sealed class ErpApiClient
         options.Converters.Add(new JsonStringEnumConverter());
         return options;
     }
+
+    /// <summary>Turns an ERP validation problem response into a single sentence the agent can relay.</summary>
+    private static async Task<string?> ReadProblemAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+            var problem = await JsonSerializer.DeserializeAsync<ValidationProblemResponse>(stream, JsonOptions, cancellationToken);
+
+            var messages = problem?.Errors?.Values.SelectMany(messages => messages).ToList();
+
+            if (messages is { Count: > 0 })
+            {
+                return string.Join(" ", messages);
+            }
+
+            return problem?.Detail ?? problem?.Title;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>The subset of an ASP.NET Core problem-details payload this client reads.</summary>
+    private sealed record ValidationProblemResponse(
+        string? Title,
+        string? Detail,
+        Dictionary<string, string[]>? Errors);
 }

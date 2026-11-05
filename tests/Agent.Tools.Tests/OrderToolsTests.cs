@@ -23,6 +23,23 @@ public class OrderToolsTests
         }
         """;
 
+    private const string CreatedRequestJson = """
+        {
+          "id": 42,
+          "orderId": 1023,
+          "type": "DeliveryDateChange",
+          "currentValue": "2026-12-03",
+          "requestedValue": "2026-12-17",
+          "reason": "Customer asked for a later delivery.",
+          "status": "Pending",
+          "createdBy": "customer-service-agent",
+          "createdAt": "2026-11-06T10:00:00+00:00",
+          "decidedBy": null,
+          "decidedAt": null,
+          "decisionComment": null
+        }
+        """;
+
     [Fact]
     public async Task GetOrderStatus_ReturnsCompactJson_ForExistingOrder()
     {
@@ -197,13 +214,87 @@ public class OrderToolsTests
     }
 
     [Fact]
+    public async Task ProposeDeliveryDateChange_CreatesPendingRequest_AndReportsIt()
+    {
+        var handler = new StubHttpMessageHandler(_ => Json(CreatedRequestJson, HttpStatusCode.Created));
+        var tools = CreateTools(handler);
+
+        var result = await tools.ProposeDeliveryDateChange(
+            1023,
+            new DateOnly(2026, 12, 17),
+            "Customer asked for a later delivery.");
+
+        Assert.Contains("\"changeRequestId\":42", result);
+        Assert.Contains("\"status\":\"Pending\"", result);
+        Assert.Contains("Pending supervisor approval", result);
+
+        var request = handler.Requests.Single();
+        Assert.Equal(HttpMethod.Post, request.Method);
+        Assert.Equal("http://erp.test/change-requests", request.RequestUri!.ToString());
+        Assert.Contains("\"type\":\"DeliveryDateChange\"", handler.LastRequestBody);
+        Assert.Contains("\"requestedValue\":\"2026-12-17\"", handler.LastRequestBody);
+        Assert.Contains("\"reason\":\"Customer asked for a later delivery.\"", handler.LastRequestBody);
+    }
+
+    [Fact]
+    public async Task ProposeDeliveryDateChange_ExplainsTheRefusal_WhenErpRejectsTheChange()
+    {
+        const string problemJson = """
+            {
+              "title": "One or more validation errors occurred.",
+              "status": 400,
+              "errors": {
+                "orderId": ["Order 1017 is Delivered and its delivery date can no longer be changed."]
+              }
+            }
+            """;
+
+        var handler = new StubHttpMessageHandler(_ => Json(problemJson, HttpStatusCode.BadRequest));
+        var tools = CreateTools(handler);
+
+        var result = await tools.ProposeDeliveryDateChange(
+            1017,
+            new DateOnly(2026, 12, 17),
+            "Customer asked for a later delivery.");
+
+        Assert.Contains("no change request was created", result);
+        Assert.Contains("is Delivered and its delivery date can no longer be changed", result);
+    }
+
+    [Fact]
+    public async Task ProposeDeliveryDateChange_ReturnsNotFoundMessage_WhenOrderMissing()
+    {
+        var handler = new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.NotFound));
+        var tools = CreateTools(handler);
+
+        var result = await tools.ProposeDeliveryDateChange(
+            9999,
+            new DateOnly(2026, 12, 17),
+            "Customer asked for a later delivery.");
+
+        Assert.Equal("Order 9999 was not found in the ERP.", result);
+    }
+
+    [Fact]
+    public async Task ProposeDeliveryDateChange_RequiresAReason_WithoutCallingErp()
+    {
+        var handler = new StubHttpMessageHandler(_ => Json(CreatedRequestJson, HttpStatusCode.Created));
+        var tools = CreateTools(handler);
+
+        var result = await tools.ProposeDeliveryDateChange(1023, new DateOnly(2026, 12, 17), "   ");
+
+        Assert.Empty(handler.Requests);
+        Assert.Contains("reason is required", result);
+    }
+
+    [Fact]
     public void Tools_ExposeDescriptionsForMethodAndParameters()
     {
         var methods = typeof(OrderTools).GetMethods()
             .Where(m => m.GetCustomAttributes(typeof(System.ComponentModel.DescriptionAttribute), false).Length > 0)
             .ToList();
 
-        Assert.Equal(4, methods.Count);
+        Assert.Equal(5, methods.Count);
 
         foreach (var method in methods)
         {
@@ -215,13 +306,32 @@ public class OrderToolsTests
         }
     }
 
+    [Fact]
+    public void Tools_ExposeNoWayToApproveRejectOrApplyAChange()
+    {
+        // The separation the whole design relies on: deciding on a change request is a supervisor
+        // action in the ERP API, and nothing in this library may expose it to the agent.
+        var suspicious = typeof(OrderTools).Assembly.GetExportedTypes()
+            .SelectMany(type => type.GetMethods()
+                .Where(method => !method.IsSpecialName)
+                .Select(method => $"{type.Name}.{method.Name}"))
+            .Where(name =>
+                name.Contains("Approve", StringComparison.OrdinalIgnoreCase) ||
+                name.Contains("Reject", StringComparison.OrdinalIgnoreCase) ||
+                name.Contains("Decide", StringComparison.OrdinalIgnoreCase) ||
+                name.Contains("Apply", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        Assert.Empty(suspicious);
+    }
+
     private static OrderTools CreateTools(StubHttpMessageHandler handler)
         => new(
             new ErpApiClient(new HttpClient(handler) { BaseAddress = new Uri("http://erp.test/") }),
             NullLogger<OrderTools>.Instance);
 
-    private static HttpResponseMessage Json(string body)
-        => new(HttpStatusCode.OK)
+    private static HttpResponseMessage Json(string body, HttpStatusCode status = HttpStatusCode.OK)
+        => new(status)
         {
             Content = new StringContent(body, Encoding.UTF8, "application/json")
         };

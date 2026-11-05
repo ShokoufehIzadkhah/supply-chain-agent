@@ -80,6 +80,58 @@ public class ChangeRequestEndpointTests : IClassFixture<ErpApiFactory>
     }
 
     [Fact]
+    public async Task Create_ForDeliveredOrder_Returns400()
+    {
+        // A delivered order cannot change its delivery date any more, whatever the requested date is.
+        var orderId = await FindOrderIdAsync(OrderStatus.Delivered);
+        using var client = CreateClient(ErpApiFactory.AgentApiKey);
+
+        using var response = await client.PostAsJsonAsync(
+            "/change-requests",
+            NewRequest(orderId, DateOnly.FromDateTime(DateTime.Today).AddDays(10)),
+            TestJson.Options);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        var problem = (await response.Content.ReadFromJsonAsync<ValidationProblemDetails>(TestJson.Options))!;
+        Assert.Contains("no longer be changed", problem.Errors["orderId"].Single());
+    }
+
+    [Fact]
+    public async Task Create_ForCancelledOrder_Returns400()
+    {
+        var orderId = await FindOrderIdAsync(OrderStatus.Cancelled);
+        using var client = CreateClient(ErpApiFactory.AgentApiKey);
+
+        using var response = await client.PostAsJsonAsync(
+            "/change-requests",
+            NewRequest(orderId, DateOnly.FromDateTime(DateTime.Today).AddDays(10)),
+            TestJson.Options);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        var problem = (await response.Content.ReadFromJsonAsync<ValidationProblemDetails>(TestJson.Options))!;
+        Assert.Contains("no longer be changed", problem.Errors["orderId"].Single());
+    }
+
+    [Fact]
+    public async Task Create_WithDateBeforeOrderDate_Returns400()
+    {
+        var order = await GetOrderAsync(1023);
+        using var client = CreateClient(ErpApiFactory.AgentApiKey);
+
+        using var response = await client.PostAsJsonAsync(
+            "/change-requests",
+            NewRequest(1023, order.OrderDate.AddDays(-1)),
+            TestJson.Options);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        var problem = (await response.Content.ReadFromJsonAsync<ValidationProblemDetails>(TestJson.Options))!;
+        Assert.Contains("cannot be earlier than the order date", problem.Errors["requestedValue"].Single());
+    }
+
+    [Fact]
     public async Task Create_WithoutKey_Returns401()
     {
         using var client = CreateClient(apiKey: null);
@@ -276,6 +328,13 @@ public class ChangeRequestEndpointTests : IClassFixture<ErpApiFactory>
 
         return client;
     }
+
+    /// <summary>Finds the id of any seeded order in the given status, so tests never hard-code ids.</summary>
+    private Task<int> FindOrderIdAsync(OrderStatus status) =>
+        _factory.QueryAsync(db => db.Orders
+            .Where(o => o.Status == status)
+            .Select(o => o.Id)
+            .FirstAsync());
 
     private async Task<OrderDetailDto> GetOrderAsync(int orderId)
     {

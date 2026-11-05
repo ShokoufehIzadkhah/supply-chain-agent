@@ -6,9 +6,11 @@ using Microsoft.Extensions.Logging;
 namespace Agent.Tools;
 
 /// <summary>
-/// Agent tools that answer order, inventory and shipment questions by calling the mock ERP API.
-/// Every tool returns a compact, LLM-friendly <see cref="string"/> — short JSON on success, or a
-/// clear human-readable message when nothing matches. Missing records never throw.
+/// Agent tools that answer order, inventory and shipment questions by calling the mock ERP API, and
+/// propose delivery date changes that a human supervisor must approve. Every tool returns a compact,
+/// LLM-friendly <see cref="string"/> — short JSON on success, or a clear human-readable message when
+/// nothing matches. Missing records and refused changes never throw. No tool can approve, reject or
+/// apply a change.
 /// </summary>
 public sealed class OrderTools
 {
@@ -16,6 +18,12 @@ public sealed class OrderTools
 
     private static readonly string[] KnownOrderStatuses =
         ["Confirmed", "InProduction", "Shipped", "Delivered", "Delayed", "Cancelled"];
+
+    /// <summary>Identity recorded on change requests this agent proposes.</summary>
+    private const string AgentIdentity = "customer-service-agent";
+
+    /// <summary>Message returned after a change request was created and is waiting for a supervisor.</summary>
+    private const string PendingApprovalMessage = "Pending supervisor approval";
 
     private readonly ErpApiClient _erp;
     private readonly ILogger<OrderTools> _logger;
@@ -51,7 +59,7 @@ public sealed class OrderTools
             var order = await _erp.GetOrderAsync(orderId);
             if (order is null)
             {
-                return NotFound($"Order {orderId} was not found in the ERP.");
+                return Refused($"Order {orderId} was not found in the ERP.");
             }
 
             var result = new OrderStatusResult(
@@ -95,14 +103,14 @@ public sealed class OrderTools
         {
             if (!TryNormalizeStatus(status, out var normalizedStatus, out var error))
             {
-                return NotFound(error!);
+                return Refused(error!);
             }
 
             var orders = await _erp.FindOrdersAsync(customerName, normalizedStatus);
             if (orders.Count == 0)
             {
                 var suffix = normalizedStatus is null ? string.Empty : $" with status {normalizedStatus}";
-                return NotFound($"No orders found for customer '{customerName}'{suffix}.");
+                return Refused($"No orders found for customer '{customerName}'{suffix}.");
             }
 
             var result = new CustomerOrdersResult(customerName, normalizedStatus, orders.Count, orders);
@@ -131,7 +139,7 @@ public sealed class OrderTools
             var products = await _erp.FindInventoryAsync(productName);
             if (products.Count == 0)
             {
-                return NotFound($"No product matching '{productName}' was found in the ERP.");
+                return Refused($"No product matching '{productName}' was found in the ERP.");
             }
 
             var result = new InventoryResult(productName, products.Count, products);
@@ -159,16 +167,81 @@ public sealed class OrderTools
             var shipments = await _erp.GetShipmentsAsync(orderId);
             if (shipments is null)
             {
-                return NotFound($"Order {orderId} was not found in the ERP.");
+                return Refused($"Order {orderId} was not found in the ERP.");
             }
 
             if (shipments.Count == 0)
             {
-                return NotFound($"Order {orderId} has no shipments yet.");
+                return Refused($"Order {orderId} has no shipments yet.");
             }
 
             var result = new ShipmentInfoResult(orderId, shipments.Count, shipments);
             return Found(result);
+        });
+    }
+
+    /// <summary>
+    /// Proposes a new delivery date for an order by creating a pending change request. The tool only
+    /// asks for the change; a human supervisor approves or rejects it, and this library cannot do
+    /// either.
+    /// </summary>
+    /// <param name="orderId">Numeric ERP order id, for example <c>1023</c>.</param>
+    /// <param name="newDate">Delivery date the order should have after a supervisor approves.</param>
+    /// <param name="reason">Why the change is needed, for example what the customer asked for.</param>
+    /// <returns>Short JSON with the new request id, or an explanation of why no request was created.</returns>
+    [Description(
+        "Proposes a new delivery date for an order and creates a PENDING change request that a human " +
+        "supervisor still has to approve. Nothing about the order changes when this tool runs. Use it " +
+        "only when the user explicitly asks to move, postpone or bring forward a delivery date, and " +
+        "only after checking the relevant policy: if the change breaks a policy, explain why instead " +
+        "of proposing it. The result is a short JSON object with the change request id, the order id, " +
+        "the requested delivery date, the status 'Pending' and the message 'Pending supervisor " +
+        "approval'. If the request cannot be created — the order does not exist, or the ERP refuses " +
+        "the change because of a hard rule such as the order already being delivered or cancelled, or " +
+        "the new date being before the order date — a plain-text explanation is returned instead of an " +
+        "error, and no request is created. You never approve, reject or apply a change yourself.")]
+    public async Task<string> ProposeDeliveryDateChange(
+        [Description(
+            "The numeric ERP order id whose delivery date should change, for example 1023. Must be the " +
+            "integer order id, not a customer name.")]
+        int orderId,
+        [Description(
+            "The new delivery date the customer wants, as an ISO date such as 2026-12-17. Must be on or " +
+            "after the order date.")]
+        DateOnly newDate,
+        [Description(
+            "Why the delivery date should change, for example 'customer asked to postpone by two weeks'. " +
+            "The reason is stored on the change request so the supervisor can judge it.")]
+        string reason)
+    {
+        return await RunAsync("ProposeDeliveryDateChange", new { orderId, newDate, reason }, async () =>
+        {
+            if (string.IsNullOrWhiteSpace(reason))
+            {
+                return Refused("A reason is required to propose a delivery date change.");
+            }
+
+            var submission = await _erp.CreateChangeRequestAsync(orderId, newDate, reason.Trim(), AgentIdentity);
+
+            switch (submission.Outcome)
+            {
+                case ChangeRequestOutcome.OrderNotFound:
+                    return Refused($"Order {orderId} was not found in the ERP.");
+
+                case ChangeRequestOutcome.Rejected:
+                    return Refused(
+                        $"The ERP refused the delivery date change for order {orderId}, so no change " +
+                        $"request was created: {submission.Problem ?? "the change breaks an ERP rule"}");
+
+                default:
+                    var request = submission.Request!;
+                    return Found(new ChangeRequestResult(
+                        request.Id,
+                        request.OrderId,
+                        request.RequestedValue,
+                        request.Status,
+                        PendingApprovalMessage));
+            }
         });
     }
 
@@ -209,7 +282,7 @@ public sealed class OrderTools
     private static ToolOutcome Found(object value)
         => new(JsonSerializer.Serialize(value, JsonOptions), Success: true);
 
-    private static ToolOutcome NotFound(string message) => new(message, Success: false);
+    private static ToolOutcome Refused(string message) => new(message, Success: false);
 
     private static bool TryNormalizeStatus(string? status, out string? normalized, out string? error)
     {
@@ -275,6 +348,19 @@ public sealed record InventoryResult(
     string ProductName,
     int Count,
     IReadOnlyList<ProductInventory> Products);
+
+/// <summary>Result of <see cref="OrderTools.ProposeDeliveryDateChange"/>.</summary>
+/// <param name="ChangeRequestId">Id of the pending change request that was created.</param>
+/// <param name="OrderId">Order the change applies to.</param>
+/// <param name="RequestedDeliveryDate">Delivery date the order should have after approval.</param>
+/// <param name="Status">Status of the new request, which is always <c>Pending</c>.</param>
+/// <param name="Message">Reminder that a supervisor still has to decide.</param>
+public sealed record ChangeRequestResult(
+    int ChangeRequestId,
+    int OrderId,
+    string RequestedDeliveryDate,
+    string Status,
+    string Message);
 
 /// <summary>Result of <see cref="OrderTools.GetShipmentInfo"/>.</summary>
 /// <param name="OrderId">Order id.</param>

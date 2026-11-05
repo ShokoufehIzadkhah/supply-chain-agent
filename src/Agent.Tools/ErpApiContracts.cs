@@ -92,6 +92,55 @@ public sealed record WarehouseStock(
     int QuantityReserved,
     int Available);
 
+/// <summary>A change request stored in the ERP, as returned by <c>POST /change-requests</c>.</summary>
+/// <param name="Id">Change request id.</param>
+/// <param name="OrderId">Order the change applies to.</param>
+/// <param name="Type">Kind of change, for example <c>DeliveryDateChange</c>.</param>
+/// <param name="CurrentValue">Value on the order when the request was created.</param>
+/// <param name="RequestedValue">Value the order should have after approval.</param>
+/// <param name="Reason">Why the change was requested.</param>
+/// <param name="Status">Current status — <c>Pending</c>, <c>Approved</c> or <c>Rejected</c>.</param>
+/// <param name="CreatedBy">Who raised the request.</param>
+/// <param name="CreatedAt">When the request was created.</param>
+/// <param name="DecidedBy">Who decided, once decided.</param>
+/// <param name="DecidedAt">When it was decided, once decided.</param>
+/// <param name="DecisionComment">Note added with the decision, when present.</param>
+public sealed record ChangeRequest(
+    int Id,
+    int OrderId,
+    string Type,
+    string CurrentValue,
+    string RequestedValue,
+    string Reason,
+    string Status,
+    string CreatedBy,
+    DateTimeOffset CreatedAt,
+    string? DecidedBy,
+    DateTimeOffset? DecidedAt,
+    string? DecisionComment);
+
+/// <summary>How the ERP responded to a submitted change request.</summary>
+public enum ChangeRequestOutcome
+{
+    /// <summary>The request was stored with status <c>Pending</c> and now waits for a supervisor.</summary>
+    Created,
+
+    /// <summary>No order with the submitted id exists.</summary>
+    OrderNotFound,
+
+    /// <summary>The ERP refused the change; <see cref="ChangeRequestSubmission.Problem"/> says why.</summary>
+    Rejected
+}
+
+/// <summary>Result of submitting a change request. Only the ERP can approve or reject one.</summary>
+/// <param name="Outcome">What the ERP did with the submission.</param>
+/// <param name="Request">The stored request when <paramref name="Outcome"/> is <see cref="ChangeRequestOutcome.Created"/>.</param>
+/// <param name="Problem">The ERP's explanation when <paramref name="Outcome"/> is <see cref="ChangeRequestOutcome.Rejected"/>.</param>
+public sealed record ChangeRequestSubmission(
+    ChangeRequestOutcome Outcome,
+    ChangeRequest? Request,
+    string? Problem);
+
 /// <summary>A shipment for an order.</summary>
 /// <param name="Id">Shipment id.</param>
 /// <param name="OrderId">Order the shipment belongs to.</param>
