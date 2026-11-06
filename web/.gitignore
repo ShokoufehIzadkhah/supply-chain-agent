@@ -1,0 +1,9 @@
+/node_modules
+/.next
+/out
+next-env.d.ts
+.env*.local
+
+# The repository root ignores every .env.* file; keep the checked-in example that documents the one
+# variable this app needs.
+!.env.local.example
