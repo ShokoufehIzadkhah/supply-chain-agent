@@ -12,9 +12,13 @@
 
   <ItemGroup>
     <!-- Policy documents are indexed at startup, so they must sit next to the executable. -->
-    <None Include="..\..\docs\policies\*.md"
-          Link="docs\policies\%(Filename)%(Extension)"
-          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\docs\policies\*.md" Link="docs\policies\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Azure.Monitor.OpenTelemetry.Exporter" Version="1.10.0" />
+    <PackageReference Include="OpenTelemetry.Exporter.Console" Version="1.20.1" />
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.20.1" />
   </ItemGroup>
 
 </Project>

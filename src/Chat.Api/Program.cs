@@ -3,8 +3,13 @@ using Agent.Tools;
 using Agent.Tools.Rag;
 using Chat.Api.ChangeRequests;
 using Chat.Api.Chat;
+using Chat.Api.Telemetry;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Traces and metrics for the agent: a span per chat request with a child span per tool call, and
+// latency and token metrics. Console by default, Application Insights when the connection string is set.
+builder.AddChatTelemetry();
 
 // How many question and answer pairs one conversation keeps in memory.
 const int maxHistoryTurns = 20;

@@ -35,6 +35,13 @@ public sealed class ToolCallRecorder(
         CancellationToken cancellationToken)
     {
         var started = Stopwatch.GetTimestamp();
+
+        // One span per tool call. Because it starts inside the call, it becomes a child of whatever span
+        // is active — the chat turn a host opened — so a trace shows every lookup under the answer that
+        // needed it. With no listener StartActivity returns null and the span costs nothing.
+        using var activity = AgentTelemetry.Source.StartActivity($"{AgentTelemetry.ToolSpanName} {Name}");
+        activity?.SetTag("tool.name", Name);
+
         object? result = null;
 
         try
@@ -42,9 +49,16 @@ public sealed class ToolCallRecorder(
             result = await base.InvokeCoreAsync(arguments, cancellationToken);
             return result;
         }
+        catch (Exception ex)
+        {
+            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            throw;
+        }
         finally
         {
-            if (onCompleted is not null)
+            // The record is built only when something consumes it: a listener reading the span, or the
+            // host's completion callback. Serializing the arguments is otherwise pure overhead.
+            if (activity is not null || onCompleted is not null)
             {
                 var record = new ToolCallRecord(
                     Name,
@@ -52,7 +66,13 @@ public sealed class ToolCallRecorder(
                     Stopwatch.GetElapsedTime(started).TotalMilliseconds,
                     result);
 
-                await onCompleted(record);
+                activity?.SetTag("tool.arguments", record.Arguments.GetRawText());
+                activity?.SetTag("tool.duration_ms", record.DurationMs);
+
+                if (onCompleted is not null)
+                {
+                    await onCompleted(record);
+                }
             }
         }
     }
