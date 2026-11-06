@@ -1,8 +1,8 @@
 using Agent.Console;
+using Agent.Core;
 using Agent.Tools;
 using Agent.Tools.Rag;
 using Microsoft.Agents.AI;
-using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -20,9 +20,7 @@ using var provider = new ServiceCollection()
     .AddLogging(logging => logging
         .AddConfiguration(configuration.GetSection("Logging"))
         .AddSimpleConsole(options => options.SingleLine = true))
-    .AddSingleton(ChatClientFactory.CreateEmbeddingGenerator(configuration))
-    .AddAgentTools(configuration)
-    .AddPolicyRag(configuration)
+    .AddOrderAssistant(configuration)
     .BuildServiceProvider();
 
 // Build the policy index before the first question. Only documents whose content hash changed are
@@ -30,31 +28,14 @@ using var provider = new ServiceCollection()
 var policyOptions = provider.GetRequiredService<PolicyRagOptions>();
 await provider.GetRequiredService<PolicyIndexer>().RebuildAsync(policyOptions.PolicyDirectory);
 
-var orderTools = provider.GetRequiredService<OrderTools>();
-var policyTools = provider.GetRequiredService<PolicyTools>();
+// The tool surface comes from Agent.Core, which is also what the MCP server exposes: one
+// definition of every name, description and parameter schema. The console only adds the reporting
+// wrapper that prints the name, the arguments and the duration in grey as the call happens.
+var tools = AgentToolset
+    .ToFunctions(provider.GetRequiredService<OrderTools>(), provider.GetRequiredService<PolicyTools>())
+    .Select(function => new ToolCallWriter(function));
 
-// Expose the OrderTools methods as function tools the model can call. Each one is wrapped so the
-// console can report the tool name, its arguments and the duration in grey as the call happens.
-var tools = new List<AITool>
-{
-    new ToolCallWriter(AIFunctionFactory.Create((Func<int, Task<string>>)orderTools.GetOrderStatus)),
-    new ToolCallWriter(AIFunctionFactory.Create((Func<string, string?, Task<string>>)orderTools.FindOrdersByCustomer)),
-    new ToolCallWriter(AIFunctionFactory.Create((Func<string, Task<string>>)orderTools.CheckInventory)),
-    new ToolCallWriter(AIFunctionFactory.Create((Func<int, Task<string>>)orderTools.GetShipmentInfo)),
-    new ToolCallWriter(AIFunctionFactory.Create(
-        (Func<int, DateOnly, string, Task<string>>)orderTools.ProposeDeliveryDateChange)),
-    new ToolCallWriter(AIFunctionFactory.Create((Func<string, Task<string>>)policyTools.SearchPolicies)),
-};
-
-var systemPrompt = await File.ReadAllTextAsync(
-    Path.Combine(AppContext.BaseDirectory, "Prompts", "system.md"));
-
-AIAgent agent = ChatClientFactory.Create(configuration).AsAIAgent(
-    instructions: systemPrompt,
-    name: "OrderAssistant",
-    description: "Answers customer service questions about orders, inventory and shipments.",
-    tools: tools,
-    loggerFactory: provider.GetService<ILoggerFactory>());
+AIAgent agent = OrderAssistant.Create(configuration, tools, provider.GetService<ILoggerFactory>());
 
 // One session carries the conversation history, so the agent remembers earlier turns.
 AgentSession session = await agent.CreateSessionAsync();

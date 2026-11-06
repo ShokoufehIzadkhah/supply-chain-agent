@@ -2,5 +2,11 @@
   <PropertyGroup>
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <!--
+      Every agent-side host reads the same secrets, so they share one user-secrets file and a secret
+      is stored once instead of once per executable. Erp.Api keeps its own id, because it owns other
+      secrets (the two API keys it validates against).
+    -->
+    <UserSecretsId>76a9779e-5d71-4292-9e0a-30d85c924581</UserSecretsId>
   </PropertyGroup>
 </Project>

@@ -4,18 +4,21 @@ using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using OpenAI;
 
-namespace Agent.Console;
+namespace Agent.Core;
 
 /// <summary>
-/// Builds the <see cref="IChatClient"/> the agent talks to, from the <c>AI</c> configuration section.
-/// Switching provider is a configuration change only:
+/// Builds the AI clients the agent talks to, from the <c>AI</c> configuration section. Switching
+/// provider is a configuration change only:
 /// <list type="bullet">
 ///   <item><description><c>AzureOpenAI</c> — Azure OpenAI (endpoint, key and deployment name).</description></item>
 ///   <item><description><c>GitHubModels</c> — GitHub Models, an OpenAI-compatible endpoint.</description></item>
 ///   <item><description><c>OpenAI</c> — the public OpenAI API.</description></item>
 /// </list>
+/// This is the only place that knows which provider is in use: hosts ask for an
+/// <see cref="IChatClient"/> or an <see cref="IEmbeddingGenerator{TInput,TEmbedding}"/> and never
+/// mention a vendor.
 /// </summary>
-internal static class ChatClientFactory
+public static class ChatClientFactory
 {
     private const string DefaultOpenAiEndpoint = "https://api.openai.com/v1";
     private const string DefaultGitHubModelsEndpoint = "https://models.github.ai/inference";
