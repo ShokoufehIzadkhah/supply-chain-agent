@@ -1,5 +1,7 @@
 # Supply Chain Order Assistant
 
+[![CI](https://github.com/ShokoufehIzadkhah/supply-chain-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/ShokoufehIzadkhah/supply-chain-agent/actions/workflows/ci.yml)
+
 A manufacturing company's Customer Service team answers order, inventory and shipment questions by
 hand and changes delivery dates over email, so every answer is a lookup and every change is a
 paper trail. This project is an AI agent that answers those questions from live ERP data and company
@@ -10,29 +12,8 @@ observability and an eval set.
 
 **Stack:** .NET 10 · C# · Microsoft Agent Framework · Microsoft.Extensions.AI · Azure OpenAI (Azure AI Foundry) / GitHub Models · EF Core + SQLite · RAG with embeddings · MCP (C# SDK) · OpenTelemetry · Next.js + TypeScript · xUnit
 
-**Short on time?** Read this page, the [architecture](#architecture) diagram, the
-[skills table](#what-it-demonstrates) and the [eval results](#evals). Everything else is detail.
-
----
-
-## Demo
-
-[▶ Watch the 2-minute demo](https://TODO-DEMO-VIDEO-LINK) — ask a question, watch the tool calls,
-reject a change, then approve it.
-
----
-
-## Screenshots
-
-| Chat | Approvals |
-| --- | --- |
-| ![Chat: answer with tool and policy-source chips](docs/images/chat.png) | ![Approvals: pending change requests with approve and reject](docs/images/approvals.png) |
-
-| MCP server in a coding agent |
-| --- |
-| ![Copilot agent mode listing the six supply-chain tools](docs/images/mcp.png) |
-
-<sub>Screenshots are placeholders — drop the real PNGs into `docs/images/`.</sub>
+**Short on time?** Read this page, the [architecture](#architecture) diagram and the
+[skills table](#what-it-demonstrates). Everything else is detail.
 
 ---
 
@@ -199,20 +180,7 @@ from user-secrets or the environment itself.
 change request). Each case asserts which tools were called (`expectedTools`), what the answer must
 contain, and what it must not contain.
 
-Every run writes a full per-case report to `evals/results/<yyyy-MM-dd>.md` (case, category,
-pass/fail, tools called, latency, tokens, notes). The latest committed report:
-
-> **Not committed yet.** No run has been published in `evals/results/` — the numbers need a live
-> model key. Run `dotnet run --project evals/EvalRunner` and commit the generated
-> `evals/results/<date>.md` to fill this table in.
-
-| Metric | Value |
-| --- | --- |
-| Cases | 20 |
-| Passed | _pending_ |
-| Pass rate | _pending_ |
-| Avg latency | _pending_ |
-| Avg tokens | _pending_ |
+Run the eval runner to reproduce; each run writes a per-case report to `evals/results/`.
 
 ---
 
@@ -294,5 +262,5 @@ model behaving well:
 
 **Shokoufeh Izadkhah** · [LinkedIn](https://www.linkedin.com/in/shokoufehizadkhah)
 
-This is a portfolio project: I designed and built it end to end to show how an agent behaves when it
-has to be accountable for what it does.
+I designed the architecture and built it end to end with AI coding assistants, to show how an agent
+behaves when it has to be accountable for what it does.
