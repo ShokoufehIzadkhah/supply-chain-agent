@@ -27,36 +27,45 @@ public class ServiceCollectionExtensionsTests
     }
 
     [Fact]
-    public void AddAgentTools_Throws_WhenBaseUrlMissing()
+    public void ResolvingOrderTools_Throws_WhenBaseUrlMissing()
     {
-        var services = new ServiceCollection();
-
-        var exception = Assert.Throws<InvalidOperationException>(() => services.AddAgentTools(Configuration(null)));
+        var exception = Assert.Throws<InvalidOperationException>(() => ResolveOrderTools(Configuration(null)));
 
         Assert.Contains("ErpApi:BaseUrl", exception.Message);
     }
 
     [Fact]
-    public void AddAgentTools_Throws_WhenBaseUrlIsNotAbsolute()
+    public void ResolvingOrderTools_Throws_WhenBaseUrlIsNotAbsolute()
     {
-        var services = new ServiceCollection();
-
-        var exception = Assert.Throws<InvalidOperationException>(() => services.AddAgentTools(Configuration("not-a-url")));
-
-        Assert.Contains("ErpApi:BaseUrl", exception.Message);
-    }
-
-    [Fact]
-    public void AddAgentTools_Throws_WhenAgentKeyMissing()
-    {
-        // Every ERP call carries the agent key, so a missing key must fail at startup, not on the
-        // first question.
-        var services = new ServiceCollection();
-
         var exception = Assert.Throws<InvalidOperationException>(
-            () => services.AddAgentTools(Configuration("http://erp.test:8080", agentKey: null)));
+            () => ResolveOrderTools(Configuration("not-a-url")));
+
+        Assert.Contains("ErpApi:BaseUrl", exception.Message);
+    }
+
+    [Fact]
+    public void ResolvingOrderTools_Throws_WhenAgentKeyMissing()
+    {
+        // Every ERP call carries the agent key, so a missing key must fail as soon as a client is
+        // built, not surface later as a 401 on the first question.
+        var exception = Assert.Throws<InvalidOperationException>(
+            () => ResolveOrderTools(Configuration("http://erp.test:8080", agentKey: null)));
 
         Assert.Contains("ApiKeys:Agent", exception.Message);
+    }
+
+    /// <summary>
+    /// Registers the tools and forces a client to be built. The base URL and the agent key are read
+    /// then — not when <c>AddAgentTools</c> runs — so a host can merge configuration sources in between.
+    /// </summary>
+    private static void ResolveOrderTools(IConfiguration configuration)
+    {
+        using var provider = new ServiceCollection()
+            .AddLogging()
+            .AddAgentTools(configuration)
+            .BuildServiceProvider();
+
+        _ = provider.GetRequiredService<OrderTools>();
     }
 
     private static IConfiguration Configuration(string? baseUrl, string? agentKey = "test-agent-key")

@@ -1,4 +1,3 @@
-using Agent.Console;
 using Agent.Core;
 using Agent.Tools;
 using Agent.Tools.Rag;
@@ -29,11 +28,28 @@ var policyOptions = provider.GetRequiredService<PolicyRagOptions>();
 await provider.GetRequiredService<PolicyIndexer>().RebuildAsync(policyOptions.PolicyDirectory);
 
 // The tool surface comes from Agent.Core, which is also what the MCP server exposes: one
-// definition of every name, description and parameter schema. The console only adds the reporting
+// definition of every name, description and parameter schema. The console adds only the reporting
 // wrapper that prints the name, the arguments and the duration in grey as the call happens.
+var consoleGate = new Lock();
+
+void WriteToolCall(ToolCallRecord call)
+{
+    lock (consoleGate)
+    {
+        var previous = Console.ForegroundColor;
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine($"  [tool] {call.Name}({call.Arguments.GetRawText()}) in {call.DurationMs:F0} ms");
+        Console.ForegroundColor = previous;
+    }
+}
+
 var tools = AgentToolset
     .ToFunctions(provider.GetRequiredService<OrderTools>(), provider.GetRequiredService<PolicyTools>())
-    .Select(function => new ToolCallWriter(function));
+    .Select(function => new ToolCallRecorder(function, call =>
+    {
+        WriteToolCall(call);
+        return ValueTask.CompletedTask;
+    }));
 
 AIAgent agent = OrderAssistant.Create(configuration, tools, provider.GetService<ILoggerFactory>());
 

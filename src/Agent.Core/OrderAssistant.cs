@@ -46,7 +46,22 @@ public static class OrderAssistant
         IConfiguration configuration,
         IEnumerable<AITool> tools,
         ILoggerFactory? loggerFactory = null)
-        => ChatClientFactory.Create(configuration).AsAIAgent(
+        => Create(ChatClientFactory.Create(configuration), tools, loggerFactory);
+
+    /// <summary>
+    /// Creates the agent on an already-created chat client. A server takes this overload: it builds the
+    /// client once and creates one agent per request, because the tools an agent reports on belong to
+    /// the request that ran them.
+    /// </summary>
+    /// <param name="chatClient">Chat client the agent sends its requests to.</param>
+    /// <param name="tools">Tools the agent may call, typically from <see cref="AgentToolset"/>.</param>
+    /// <param name="loggerFactory">Optional factory used to log the agent's own diagnostics.</param>
+    /// <returns>The configured agent.</returns>
+    public static AIAgent Create(
+        IChatClient chatClient,
+        IEnumerable<AITool> tools,
+        ILoggerFactory? loggerFactory = null)
+        => chatClient.AsAIAgent(
             instructions: LoadSystemPrompt(),
             name: Name,
             description: Description,

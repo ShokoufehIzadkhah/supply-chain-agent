@@ -21,10 +21,39 @@ public static class ServiceCollectionExtensions
     /// <param name="services">Service collection to register into.</param>
     /// <param name="configuration">Configuration that provides <c>ErpApi:BaseUrl</c> and <c>ApiKeys:Agent</c>.</param>
     /// <returns>The same service collection, so calls can be chained.</returns>
+    /// <remarks>
+    /// The keys are read when a client is built, not when this method runs, so a host may merge further
+    /// configuration sources — deployment settings, test overrides — afterwards. A host that wants the
+    /// check at startup resolves <see cref="OrderTools"/> as part of its startup.
+    /// </remarks>
     /// <exception cref="InvalidOperationException">
     /// <c>ErpApi:BaseUrl</c> is missing or not an absolute URI, or <c>ApiKeys:Agent</c> is missing.
     /// </exception>
     public static IServiceCollection AddAgentTools(this IServiceCollection services, IConfiguration configuration)
+    {
+        services.AddHttpClient<ErpApiClient>(client =>
+        {
+            var (baseAddress, agentKey) = ReadErpSettings(configuration);
+
+            client.BaseAddress = baseAddress;
+            client.DefaultRequestHeaders.Add(ApiKeyHeaderName, agentKey);
+        });
+
+        services.AddTransient<OrderTools>();
+
+        return services;
+    }
+
+    /// <summary>
+    /// Reads and validates the settings every ERP call needs. Runs when a client is built rather than at
+    /// registration, so the configuration has been fully merged by then.
+    /// </summary>
+    /// <param name="configuration">Configuration to read from.</param>
+    /// <returns>The base address (with a trailing slash) and the agent key.</returns>
+    /// <exception cref="InvalidOperationException">
+    /// <c>ErpApi:BaseUrl</c> is missing or not an absolute URI, or <c>ApiKeys:Agent</c> is missing.
+    /// </exception>
+    private static (Uri BaseAddress, string AgentKey) ReadErpSettings(IConfiguration configuration)
     {
         var baseUrl = configuration["ErpApi:BaseUrl"];
 
@@ -41,7 +70,7 @@ public static class ServiceCollectionExtensions
         }
 
         // Fail fast: every ERP call carries the agent key, so a missing key is a configuration
-        // mistake that must surface at startup rather than as a 401 on the first question.
+        // mistake that must surface when the client is built rather than as a 401 on the first question.
         var agentKey = configuration[AgentKeyConfigKey];
 
         if (string.IsNullOrWhiteSpace(agentKey))
@@ -54,15 +83,7 @@ public static class ServiceCollectionExtensions
         // Guarantee a trailing slash so relative request paths are appended to, not replaced.
         var normalized = uri.AbsoluteUri.EndsWith('/') ? uri.AbsoluteUri : $"{uri.AbsoluteUri}/";
 
-        services.AddHttpClient<ErpApiClient>(client =>
-        {
-            client.BaseAddress = new Uri(normalized);
-            client.DefaultRequestHeaders.Add(ApiKeyHeaderName, agentKey);
-        });
-
-        services.AddTransient<OrderTools>();
-
-        return services;
+        return (new Uri(normalized), agentKey);
     }
 
     /// <summary>

@@ -22,7 +22,11 @@ public static class ServiceCollectionExtensions
         this IServiceCollection services,
         IConfiguration configuration)
     {
-        services.AddSingleton(ChatClientFactory.CreateEmbeddingGenerator(configuration));
+        // Registered as a factory rather than a value, so the generator is created when it is first
+        // resolved. A host whose configuration is completed after this method returns — an ASP.NET
+        // host that merges sources during Build(), or a test overriding the provider and the keys —
+        // is then still honoured, because the configuration is read at resolution time, not here.
+        services.AddSingleton(_ => ChatClientFactory.CreateEmbeddingGenerator(configuration));
         services.AddAgentTools(configuration);
         services.AddPolicyRag(configuration);
 

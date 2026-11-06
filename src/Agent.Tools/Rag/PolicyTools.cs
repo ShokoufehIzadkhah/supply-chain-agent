@@ -63,7 +63,10 @@ public sealed class PolicyTools
 
         try
         {
-            var output = await SearchAsync(question);
+            var result = await SearchAsync(question);
+            var output = result is null
+                ? NoPoliciesIndexed
+                : JsonSerializer.Serialize(result, JsonOptions);
 
             _logger.LogInformation(
                 "Tool {ToolName} called with {ToolArguments} in {DurationMs} ms",
@@ -86,25 +89,49 @@ public sealed class PolicyTools
         }
     }
 
-    private async Task<string> SearchAsync(string question)
+    /// <summary>
+    /// Reads the JSON produced by <see cref="SearchPolicies"/> back into a result, so a host can report
+    /// which documents an answer is grounded in without parsing text of its own.
+    /// </summary>
+    /// <param name="output">The value <see cref="SearchPolicies"/> returned.</param>
+    /// <returns>The parsed result, or <c>null</c> when nothing was indexed.</returns>
+    public static PolicySearchResult? ParseResult(string output)
+        => output == NoPoliciesIndexed
+            ? null
+            : JsonSerializer.Deserialize<PolicySearchResult>(output, JsonOptions);
+
+    private async Task<PolicySearchResult?> SearchAsync(string question)
     {
         var embedding = await _embeddings.GenerateAsync(question);
         var results = await _store.SearchAsync(embedding.Vector, TopK);
 
         if (results.Count == 0)
         {
-            return NoPoliciesIndexed;
+            return null;
         }
 
-        var matches = results.Select(result => new
-        {
-            source = result.Chunk.SourceFile,
-            heading = result.Chunk.Heading,
-            section = result.Chunk.Section,
-            score = Math.Round(result.Score, 4),
-            text = result.Chunk.Text,
-        });
-
-        return JsonSerializer.Serialize(new { question, matches }, JsonOptions);
+        return new PolicySearchResult(
+            question,
+            [
+                .. results.Select(result => new PolicySearchMatch(
+                    result.Chunk.SourceFile,
+                    result.Chunk.Heading,
+                    result.Chunk.Section,
+                    Math.Round(result.Score, 4),
+                    result.Chunk.Text)),
+            ]);
     }
 }
+
+/// <summary>One passage of a policy document that matched a search.</summary>
+/// <param name="Source">File the passage came from, for example <c>order-change-rules.md</c>.</param>
+/// <param name="Heading">Heading path of the passage.</param>
+/// <param name="Section">Numbered section the passage belongs to; <c>null</c> when headings are unnumbered.</param>
+/// <param name="Score">Cosine similarity between the question and the passage.</param>
+/// <param name="Text">The passage itself.</param>
+public sealed record PolicySearchMatch(string Source, string Heading, string? Section, double Score, string Text);
+
+/// <summary>The passages a policy question matched.</summary>
+/// <param name="Question">The question that was asked.</param>
+/// <param name="Matches">The best matching passages, most similar first.</param>
+public sealed record PolicySearchResult(string Question, IReadOnlyList<PolicySearchMatch> Matches);
